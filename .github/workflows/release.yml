@@ -1,11 +1,10 @@
-name: Release
+name: Release (upstream — disabled in fork)
 
+# Disabled: this workflow pushes to grafanalabs S3 buckets we do not have
+# credentials for. Our fork uses fork-release.yml instead. Kept for reference
+# when merging upstream changes.
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:

@@ -1,0 +1,75 @@
+name: Fork Release
+
+# Builds the x86_64 Linux binary, packages it as a Lambda-ready zip, and
+# publishes a GitHub release with the zip + sha256 attached when a
+# v*-sortfix.* tag is pushed.
+#
+# Replaces upstream release.yml (which pushes to grafanalabs S3 buckets we
+# don't have credentials for). Tag convention: v<upstream-base>-sortfix.<n>,
+# e.g. v1.0.1-sortfix.1.
+
+on:
+  push:
+    tags:
+      - 'v*-sortfix.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build (linux/amd64)
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -o bootstrap -ldflags='-s -w' ./pkg
+
+      - name: Verify bootstrap binary
+        run: |
+          file bootstrap | grep -q 'ELF 64-bit LSB executable, x86-64'
+          ls -lh bootstrap
+
+      - name: Package zip
+        run: |
+          ZIP_NAME="lambda-promtail-${GITHUB_REF_NAME}.zip"
+          zip "$ZIP_NAME" bootstrap
+          sha256sum "$ZIP_NAME" > "${ZIP_NAME}.sha256"
+          ls -lh "$ZIP_NAME" "${ZIP_NAME}.sha256"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
+          body: |
+            Fork release of `lambda-promtail` carrying two fixes for bugs still present upstream:
+
+            - **`builder.Sort()` relabel fix** — deterministic relabel output
+              (see [`pkg/relabel_apply_test.go`](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/pkg/relabel_apply_test.go)).
+            - **S3 empty-batch guard** — prevents CloudTrail 422 → DLQ log loss
+              (see [`pkg/empty_batch_test.go`](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/pkg/empty_batch_test.go)).
+
+            ## Artifact
+
+            - `lambda-promtail-${{ github.ref_name }}.zip` — x86_64 Linux build for Lambda's `provided.al2023` runtime (handler: `bootstrap`).
+            - `lambda-promtail-${{ github.ref_name }}.zip.sha256` — checksum.
+
+            ## Usage
+
+            Vendored into `tf-common-modules/logs-forwarder` (`files/`) and pinned via `var.lambda_promtail_version`.
