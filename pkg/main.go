@@ -193,7 +193,9 @@ func applyRelabelConfigs(labels model.LabelSet) model.LabelSet {
 		builder.Add(string(name), string(value))
 	}
 
-	// Sort labels as required by Process
+	// relabel.Process requires sorted input; ScratchBuilder.Labels() preserves
+	// insertion order (randomised map iteration), so Sort() before handing off.
+	builder.Sort()
 	promLabels := builder.Labels()
 
 	// Apply relabeling
