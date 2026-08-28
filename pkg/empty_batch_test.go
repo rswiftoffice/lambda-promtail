@@ -14,7 +14,7 @@ import (
 // recordingRoundTripper records whether any HTTP request was issued.
 type recordingRoundTripper struct{ called bool }
 
-func (r *recordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+func (r *recordingRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
 	r.called = true
 	return &http.Response{StatusCode: 200, Body: http.NoBody, Header: make(http.Header)}, nil
 }
