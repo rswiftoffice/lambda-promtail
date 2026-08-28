@@ -1,0 +1,82 @@
+name: Upstream Drift Check
+
+# Surfaces when grafana/lambda-promtail publishes a release newer than the base
+# our fork is built on. Opens a tracking issue (does NOT auto-rebase — our Sort
+# and empty-batch patches can conflict, so a human does the rebase). Idempotent:
+# won't reopen/duplicate an issue for a version already flagged.
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'   # Mondays 01:00 UTC
+  workflow_dispatch:       # allow manual runs
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare upstream release to our fork base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: grafana/lambda-promtail
+          FORK: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Latest upstream release tag, e.g. v1.0.2
+          UPSTREAM_LATEST=$(gh release view --repo "$UPSTREAM" --json tagName --jq '.tagName')
+          echo "Upstream latest: $UPSTREAM_LATEST"
+
+          # Our latest fork tag, e.g. v1.0.1-sortfix.2 → base v1.0.1
+          FORK_TAG=$(gh api "repos/$FORK/tags" --jq '[.[].name | select(test("-sortfix\\."))][0]')
+          FORK_BASE="${FORK_TAG%%-sortfix.*}"
+          echo "Fork tag: $FORK_TAG (base: $FORK_BASE)"
+
+          if [ "$UPSTREAM_LATEST" = "$FORK_BASE" ]; then
+            echo "Up to date — fork base matches upstream latest. Nothing to do."
+            exit 0
+          fi
+
+          echo "DRIFT: upstream $UPSTREAM_LATEST > fork base $FORK_BASE"
+
+          TITLE="Upstream drift: rebase fork onto $UPSTREAM_LATEST"
+
+          # Idempotent: skip if an open issue with this exact title already exists.
+          EXISTING=$(gh issue list --repo "$FORK" --state open --search "$TITLE in:title" --json number --jq 'length')
+          if [ "$EXISTING" != "0" ]; then
+            echo "Tracking issue already open — skipping."
+            exit 0
+          fi
+
+          # Ensure the label exists (issue create fails on a missing label).
+          gh label create upstream-sync --repo "$FORK" --color FBCA04 \
+            --description "Upstream lambda-promtail drift" 2>/dev/null || true
+
+          BODY=$(printf '%s\n' \
+            "\`grafana/lambda-promtail\` has released **$UPSTREAM_LATEST**, newer than our fork base **$FORK_BASE** (current fork tag: \`$FORK_TAG\`)." \
+            "" \
+            "## Action required" \
+            "Rebase our two patches onto the new upstream tag and cut a release. Both patches carry regression tests that fail if dropped — do not skip them." \
+            "" \
+            '```bash' \
+            "git fetch upstream" \
+            "git rebase $UPSTREAM_LATEST     # carry Sort + empty-batch fixes forward" \
+            "go test ./...                   # both regression tests must pass" \
+            "git tag -a $UPSTREAM_LATEST-sortfix.1 -m \"$UPSTREAM_LATEST + Sort fix + S3 empty-batch fix\"" \
+            "git push origin main $UPSTREAM_LATEST-sortfix.1" \
+            '```' \
+            "" \
+            "Then vendor the new zip into the \`logs-forwarder\` module — see that module's \`UPGRADING.md\`." \
+            "" \
+            "If upstream has merged **both** fixes, retire the fork instead (tag the plain upstream release, drop the \`-sortfix\` suffix)." \
+            "" \
+            "_Opened automatically by the Upstream Drift Check workflow._")
+
+          gh issue create --repo "$FORK" \
+            --title "$TITLE" \
+            --label "upstream-sync" \
+            --body "$BODY"
+          echo "Opened tracking issue: $TITLE"
