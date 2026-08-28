@@ -164,9 +164,16 @@ func (b *batch) resetBatch() {
 }
 
 func (c *promtailClient) sendToPromtail(ctx context.Context, b *batch) error {
-	buf, _, err := b.encode()
+	buf, entriesCount, err := b.encode()
 	if err != nil {
 		return err
+	}
+
+	// Skip empty batches: a multi-record source (e.g. CloudTrail) whose size is a
+	// clean multiple of batchSize leaves an empty final batch, and an empty
+	// PushRequest makes Loki return a non-retryable 422 that DLQs the whole message.
+	if entriesCount == 0 {
+		return nil
 	}
 
 	backoff := backoff.New(ctx, *c.config.backoff)
