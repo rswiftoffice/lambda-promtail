@@ -424,6 +424,65 @@ func Test_getLabels(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			// CloudFront logging with no prefix writes to the bucket root.
+			name: "s3_cloudfront_no_prefix",
+			args: args{
+				record: events.S3EventRecord{
+					AWSRegion: "ap-southeast-1",
+					S3: events.S3Entity{
+						Bucket: events.S3Bucket{
+							Name: "cloudfront_logs_test",
+							OwnerIdentity: events.S3UserIdentity{
+								PrincipalID: "test",
+							},
+						},
+						Object: events.S3Object{
+							Key: "E399X8DDNMK2WS.2026-10-19-13.4a8d6c2e.gz",
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"bucket":        "cloudfront_logs_test",
+				"bucket_owner":  "test",
+				"bucket_region": "ap-southeast-1",
+				"day":           "19",
+				"key":           "E399X8DDNMK2WS.2026-10-19-13.4a8d6c2e.gz",
+				"month":         "10",
+				"src":           "E399X8DDNMK2WS",
+				"type":          CloudFrontLogType,
+				"year":          "2026",
+			},
+			wantErr: false,
+		},
+		{
+			// A lowercase/mixed root-level key is not a CloudFront log and must still be rejected.
+			name: "s3_unknown_root_key",
+			args: args{
+				record: events.S3EventRecord{
+					AWSRegion: "ap-southeast-1",
+					S3: events.S3Entity{
+						Bucket: events.S3Bucket{
+							Name: "some_bucket",
+							OwnerIdentity: events.S3UserIdentity{
+								PrincipalID: "test",
+							},
+						},
+						Object: events.S3Object{
+							Key: "exports/report.2026-10-19-13.csv",
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"bucket":        "some_bucket",
+				"bucket_owner":  "test",
+				"bucket_region": "ap-southeast-1",
+				"key":           "exports/report.2026-10-19-13.csv",
+			},
+			wantErr: true,
+		},
+		{
 			name: "s3_url_encoded_1",
 			args: args{
 				record: events.S3EventRecord{
