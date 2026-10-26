@@ -585,6 +585,76 @@ func Test_getLabels(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "s3_network_firewall_flow",
+			args: args{
+				record: events.S3EventRecord{
+					AWSRegion: "ap-southeast-1",
+					S3: events.S3Entity{
+						Bucket: events.S3Bucket{
+							Name: "nfw_logs_test",
+							OwnerIdentity: events.S3UserIdentity{
+								PrincipalID: "test",
+							},
+						},
+						Object: events.S3Object{
+							Key: "FLOW/AWSLogs/654654359218/network-firewall/flow/ap-southeast-1/swiftentry-v3-prod-firewall-policy/2026/10/26/08/654654359218_network-firewall_flow_ap-southeast-1_swiftentry-v3-prod-firewall-policy_202610260815_f4b34fcf.log.gz",
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"account_id":        "654654359218",
+				"bucket_owner":      "test",
+				"bucket_region":     "ap-southeast-1",
+				"bucket":            "nfw_logs_test",
+				"day":               "26",
+				"firewall_log_type": "flow",
+				"hour":              "08",
+				"key":               "FLOW/AWSLogs/654654359218/network-firewall/flow/ap-southeast-1/swiftentry-v3-prod-firewall-policy/2026/10/26/08/654654359218_network-firewall_flow_ap-southeast-1_swiftentry-v3-prod-firewall-policy_202610260815_f4b34fcf.log.gz",
+				"month":             "10",
+				"region":            "ap-southeast-1",
+				"src":               "swiftentry-v3-prod-firewall-policy",
+				"type":              NetworkFirewallLogType,
+				"year":              "2026",
+			},
+			wantErr: false,
+		},
+		{
+			name: "s3_network_firewall_alert_with_prefix",
+			args: args{
+				record: events.S3EventRecord{
+					AWSRegion: "ap-southeast-1",
+					S3: events.S3Entity{
+						Bucket: events.S3Bucket{
+							Name: "nfw_logs_test",
+							OwnerIdentity: events.S3UserIdentity{
+								PrincipalID: "test",
+							},
+						},
+						Object: events.S3Object{
+							Key: "ALERT/AWSLogs/654654359218/network-firewall/alert/ap-southeast-1/fw-1/2026/10/22/21/654654359218_network-firewall_alert_ap-southeast-1_fw-1_202610222150_ceced6e4.log.gz",
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"account_id":        "654654359218",
+				"bucket_owner":      "test",
+				"bucket_region":     "ap-southeast-1",
+				"bucket":            "nfw_logs_test",
+				"day":               "22",
+				"firewall_log_type": "alert",
+				"hour":              "21",
+				"key":               "ALERT/AWSLogs/654654359218/network-firewall/alert/ap-southeast-1/fw-1/2026/10/22/21/654654359218_network-firewall_alert_ap-southeast-1_fw-1_202610222150_ceced6e4.log.gz",
+				"month":             "10",
+				"region":            "ap-southeast-1",
+				"src":               "fw-1",
+				"type":              NetworkFirewallLogType,
+				"year":              "2026",
+			},
+			wantErr: false,
+		},
+		{
 			name: "s3_govcloud_waf",
 			args: args{
 				record: events.S3EventRecord{
@@ -870,6 +940,29 @@ func Test_parseS3Log(t *testing.T) {
 			expectedStream: `{__aws_log_type="s3_waf", __aws_s3_waf="TEST-WEBACL", __aws_s3_waf_owner="11111111111"}`,
 			expectedTimestamps: []time.Time{
 				time.Date(2023, time.August, 31, 4, 57, 42, 729000000, time.UTC),
+			},
+			wantErr: false,
+		},
+		{
+			name: "networkfirewall",
+			args: args{
+				batchSize: 131072, // Set large enough we don't try and send to promtail
+				filename:  "../testdata/networkfirewall-flow.log.gz",
+				b: &batch{
+					streams:   map[string]*logproto.Stream{},
+					processor: process,
+				},
+				labels: map[string]string{
+					"account_id": "654654359218",
+					"src":        "swiftentry-v3-prod-firewall-policy",
+					"type":       NetworkFirewallLogType,
+				},
+			},
+			expectedLen:    1,
+			expectedStream: `{__aws_log_type="s3_network_firewall", __aws_s3_network_firewall="swiftentry-v3-prod-firewall-policy", __aws_s3_network_firewall_owner="654654359218"}`,
+			expectedTimestamps: []time.Time{
+				time.Date(2026, time.October, 26, 8, 2, 3, 0, time.UTC),
+				time.Date(2026, time.October, 26, 8, 2, 5, 0, time.UTC),
 			},
 			wantErr: false,
 		},
