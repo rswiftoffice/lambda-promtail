@@ -55,6 +55,7 @@ const (
 	GuardDutyLogType        string = "GuardDuty"
 	MskLogType              string = "KafkaBrokerLogs"
 	S3AccessLogType         string = "S3AccessLogs"
+	NetworkFirewallLogType  string = "network-firewall"
 )
 
 var (
@@ -91,23 +92,30 @@ var (
 	// source: https://docs.aws.amazon.com/msk/latest/developerguide/msk-logging.html
 	// format: bucket[/prefix]/AWSLogs/aws-account-id/KafkaBrokerLogs/region/{cluster-name}-{cluster-ARN-UUID}/year-month-day-hour/Broker-{broker-id}_hour-minute_hash.log.gz
 	// example: my-bucket/logs/msk-/AWSLogs/123456789012/KafkaBrokerLogs/eu-south-2/msk-cluster-644d6cf5-99f1-1118-a846-e6475a4d-3/2025-07-01-10/Broker-1_10-15_c58203e6.log.gz
+	// AWS Network Firewall (flow, alert and tls logs)
+	// source: https://docs.aws.amazon.com/network-firewall/latest/developerguide/firewall-logging-s3.html
+	// format: bucket[/prefix]/AWSLogs/aws-account-id/network-firewall/log-type/Region/firewall-name/timestamp/aws-account-id_network-firewall_log-type_Region_firewall-name_timestamp_hash.log.gz
+	// example: my-bucket/AWSLogs/123456789012/network-firewall/flow/ap-southeast-1/my-firewall/2026/10/26/08/123456789012_network-firewall_flow_ap-southeast-1_my-firewall_202610260815_f4b34fcf.log.gz
 	// S3 Access Logs - requires date-based partitioning to be enabled
 	// source: https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerLogs.html
 	// format: aws-account-id/region/bucket-name/year/month/day/timestamp-hash
 	// example: 123456789012/us-west-2/amzn-s3-demo-source-bucket/2023/03/01/2023-03-01-21-32-16-E568B2907131C0C0
-	defaultFilenameRegex      = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>[a-zA-Z0-9_\-]+)\/(?P<region>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/(?:health_check_log_)?\d+\_(?:elasticloadbalancing|vpcflowlogs)_(?:\w+-\w+-(?:\w+-)?\d)_(?:(?P<lb_type>app|net)\.*?)?(?P<src>[a-zA-Z0-9\-]+)`)
-	defaultTimestampRegex     = regexp.MustCompile(`(?P<timestamp>\d+-\d+-\d+T\d+:\d+:\d+(?:\.\d+Z)?)`)
-	cloudtrailFilenameRegex   = regexp.MustCompile(`AWSLogs\/(?P<organization_id>o-[a-z0-9]{10,32})?\/?(?P<account_id>\d+)\/(?P<type>[a-zA-Z0-9_\-]+)\/(?P<region>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/\d+\_(?:CloudTrail|CloudTrail-Digest)_(?:\w+-\w+-(?:\w+-)?\d)_(?:(?:app|nlb|net)\.*?)?.+_(?P<src>[a-zA-Z0-9\-]+)`)
-	cloudfrontFilenameRegex   = regexp.MustCompile(`^(?:(?P<prefix>.*)\/)?(?P<src>[A-Z0-9]+)\.(?P<year>\d+)-(?P<month>\d+)-(?P<day>\d+)-(.+)`)
-	cloudfrontTimestampRegex  = regexp.MustCompile(`(?P<timestamp>\d+-\d+-\d+\s\d+:\d+:\d+)`)
-	wafFilenameRegex          = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>WAFLogs)\/(?P<region>[\w-]+)\/(?P<src>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/(?P<hour>\d+)\/(?P<minute>\d+)\/\d+\_waflogs\_[\w-]+_[\w-]+_\d+T\d+Z_\w+`)
-	wafTimestampRegex         = regexp.MustCompile(`"timestamp":\s*(?P<timestamp>\d+),`)
-	guarddutyFilenameRegex    = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>GuardDuty)\/(?P<region>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/.+`)
-	mskFilenameRegex          = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>KafkaBrokerLogs)\/(?P<region>[\w-]+)\/(?P<cluster_name>[a-zA-Z0-9-]+)-(?P<cluster_uuid>[a-f0-9-]+)\/(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<hour>\d{2})\/Broker-(?P<broker_id>\d+)_(?P<log_hour>\d{2})-(?P<log_minute>\d{2})_[a-f0-9]+\.log\.gz`)
-	mskTimestampRegex         = regexp.MustCompile(`^\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\]`)
-	s3AccessLogFilenameRegex  = regexp.MustCompile(`(?P<account_id>\d+)\/(?P<region>[\w-]+)\/(?P<src>[a-zA-Z0-9\-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/[a-zA-Z0-9\-]+$`)
-	s3AccessLogTimestampRegex = regexp.MustCompile(`\[(?P<timestamp>\d+\/\w+\/\d+:\d+:\d+:\d+ [\+-]\d+)\]`)
-	parsers                   = map[string]parserConfig{
+	defaultFilenameRegex         = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>[a-zA-Z0-9_\-]+)\/(?P<region>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/(?:health_check_log_)?\d+\_(?:elasticloadbalancing|vpcflowlogs)_(?:\w+-\w+-(?:\w+-)?\d)_(?:(?P<lb_type>app|net)\.*?)?(?P<src>[a-zA-Z0-9\-]+)`)
+	defaultTimestampRegex        = regexp.MustCompile(`(?P<timestamp>\d+-\d+-\d+T\d+:\d+:\d+(?:\.\d+Z)?)`)
+	cloudtrailFilenameRegex      = regexp.MustCompile(`AWSLogs\/(?P<organization_id>o-[a-z0-9]{10,32})?\/?(?P<account_id>\d+)\/(?P<type>[a-zA-Z0-9_\-]+)\/(?P<region>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/\d+\_(?:CloudTrail|CloudTrail-Digest)_(?:\w+-\w+-(?:\w+-)?\d)_(?:(?:app|nlb|net)\.*?)?.+_(?P<src>[a-zA-Z0-9\-]+)`)
+	cloudfrontFilenameRegex      = regexp.MustCompile(`^(?:(?P<prefix>.*)\/)?(?P<src>[A-Z0-9]+)\.(?P<year>\d+)-(?P<month>\d+)-(?P<day>\d+)-(.+)`)
+	cloudfrontTimestampRegex     = regexp.MustCompile(`(?P<timestamp>\d+-\d+-\d+\s\d+:\d+:\d+)`)
+	wafFilenameRegex             = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>WAFLogs)\/(?P<region>[\w-]+)\/(?P<src>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/(?P<hour>\d+)\/(?P<minute>\d+)\/\d+\_waflogs\_[\w-]+_[\w-]+_\d+T\d+Z_\w+`)
+	wafTimestampRegex            = regexp.MustCompile(`"timestamp":\s*(?P<timestamp>\d+),`)
+	guarddutyFilenameRegex       = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>GuardDuty)\/(?P<region>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/.+`)
+	mskFilenameRegex             = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/(?P<type>KafkaBrokerLogs)\/(?P<region>[\w-]+)\/(?P<cluster_name>[a-zA-Z0-9-]+)-(?P<cluster_uuid>[a-f0-9-]+)\/(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<hour>\d{2})\/Broker-(?P<broker_id>\d+)_(?P<log_hour>\d{2})-(?P<log_minute>\d{2})_[a-f0-9]+\.log\.gz`)
+	mskTimestampRegex            = regexp.MustCompile(`^\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\]`)
+	networkFirewallFilenameRegex = regexp.MustCompile(`AWSLogs\/(?P<account_id>\d+)\/network-firewall\/(?P<firewall_log_type>flow|alert|tls)\/(?P<region>[\w-]+)\/(?P<src>[\w-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/(?P<hour>\d+)\/`)
+	// one JSON object per line; event_timestamp is epoch seconds, quoted
+	networkFirewallTimestampRegex = regexp.MustCompile(`"event_timestamp":\s*"?(?P<timestamp>\d+)"?`)
+	s3AccessLogFilenameRegex      = regexp.MustCompile(`(?P<account_id>\d+)\/(?P<region>[\w-]+)\/(?P<src>[a-zA-Z0-9\-]+)\/(?P<year>\d+)\/(?P<month>\d+)\/(?P<day>\d+)\/[a-zA-Z0-9\-]+$`)
+	s3AccessLogTimestampRegex     = regexp.MustCompile(`\[(?P<timestamp>\d+\/\w+\/\d+:\d+:\d+:\d+ [\+-]\d+)\]`)
+	parsers                       = map[string]parserConfig{
 		FlowLogType: {
 			logTypeLabel:    "s3_vpc_flow",
 			filenameRegex:   defaultFilenameRegex,
@@ -163,6 +171,13 @@ var (
 			timestampFormat: "2006-01-02 15:04:05,000",
 			timestampType:   "string",
 			skipHeaderCount: 0,
+		},
+		NetworkFirewallLogType: {
+			logTypeLabel:   "s3_network_firewall",
+			filenameRegex:  networkFirewallFilenameRegex,
+			ownerLabelKey:  "account_id",
+			timestampRegex: networkFirewallTimestampRegex,
+			timestampType:  "unix",
 		},
 		S3AccessLogType: {
 			logTypeLabel:    "s3_access",
